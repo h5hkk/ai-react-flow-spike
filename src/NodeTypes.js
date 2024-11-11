@@ -14,7 +14,7 @@ export const nodeTypes = {
           backgroundColor: "#fff",
           padding: "10px",
           borderRadius: "5px",
-          border: "1px solid #ccc",
+          // border: "1px solid #ccc",
           // width: "100%",
           height,
           opacity: 0.5,

@@ -26,6 +26,11 @@ body,
 }
 
 .react-flow__node-group_container {
-  /* z-index为1000，导致edge无法被单独删除 */
+  /* z-index为1000，导致group内的edge无法被删除 */
   z-index: -1 !important;
+}
+
+.grouping-hover .node_group_container {
+  border: 2px dashed #1890ff;
+  padding: 8px !important;
 }
