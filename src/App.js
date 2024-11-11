@@ -1,21 +1,28 @@
-import { useCallback, useState } from "react";
-import ReactFlow, {
+import {
   addEdge,
   applyEdgeChanges,
   applyNodeChanges,
   Background,
-  // useReactFlow,
-  // ReactFlowProvider,
-  // useStoreApi,
-} from "reactflow";
-import "reactflow/dist/style.css";
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
+  ReactFlow,
+  ReactFlowProvider,
+  // useEdgesState,
+  // useNodesState,
+  useReactFlow,
+  useStoreApi,
+  useUpdateNodeInternals,
+} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { useCallback, useState } from "react";
+import "reactflow/dist/style.css";
+// import { edgeTypes } from "./EdgeTypes.js";
+import { nodeTypes } from "./NodeTypes.js";
 
-import { useReactFlow, ReactFlowProvider, useStoreApi } from "@xyflow/react";
-
-import initialNodes, { P1, C1, C2, C3 } from "./nodes.js";
 import initialEdges from "./edges.js";
-
+import initialNodes from "./nodes.js";
+const MIN_DISTANCE = 200;
 const rfStyle = {
   backgroundColor: "#D0C0F7",
 };
@@ -23,17 +30,34 @@ const rfStyle = {
 function Flow() {
   const [nodes, setNodes] = useState(initialNodes);
   const [edges, setEdges] = useState(initialEdges);
-  const { getInternalNode } = useReactFlow();
+  // const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  // const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const { getInternalNode, getIntersectingNodes, updateNode } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
+
   const store = useStoreApi();
 
   const getClosestEdge = useCallback((node) => {
     const { nodeLookup } = store.getState();
     const internalNode = getInternalNode(node.id);
-    console.log("internalNode----", { node, internalNode, nodeLookup });
+    console.log("🚀 ~ getClosestEdge ~ internalNode:", {
+      position: internalNode.position,
+      width: internalNode.measured.width,
+    });
 
     const closestNode = Array.from(nodeLookup.values()).reduce(
       (res, n) => {
-        if (n.id !== internalNode.id) {
+        if (
+          n.type === "group_container" &&
+          internalNode.type !== "group_container" &&
+          n.id !== internalNode.id &&
+          //nodeX > groupX && nodeX < groupX + groupWidth  || groupX > nodeX && groupX < nodeX + nodeWidth
+          ((n.position.x <= internalNode.position.x &&
+            n.position.x + n.measured.width >= internalNode.position.x) ||
+            (internalNode.position.x <= n.position.x &&
+              internalNode.position.x + internalNode.measured.width >=
+                n.position.x))
+        ) {
           const dx =
             n.internals.positionAbsolute.x -
             internalNode.internals.positionAbsolute.x;
@@ -57,7 +81,10 @@ function Flow() {
     );
 
     if (!closestNode.node) {
-      return null;
+      return {
+        closeEdge: null,
+        closestNode: null,
+      };
     }
 
     const closeNodeIsSource =
@@ -65,17 +92,29 @@ function Flow() {
       internalNode.internals.positionAbsolute.x;
 
     return {
-      id: closeNodeIsSource
-        ? `${closestNode.node.id}-${node.id}`
-        : `${node.id}-${closestNode.node.id}`,
-      source: closeNodeIsSource ? closestNode.node.id : node.id,
-      target: closeNodeIsSource ? node.id : closestNode.node.id,
+      closeEdge: {
+        id: closeNodeIsSource
+          ? `${closestNode.node.id}-${node.id}`
+          : `${node.id}-${closestNode.node.id}`,
+        source: closeNodeIsSource ? closestNode.node.id : node.id,
+        target: closeNodeIsSource ? node.id : closestNode.node.id,
+      },
+      closestNode: closestNode.node,
     };
   }, []);
 
   const onNodeDrag = useCallback(
     (_, node) => {
-      const closeEdge = getClosestEdge(node);
+      const { closeEdge, closestNode } = getClosestEdge(node);
+      const intersections = getIntersectingNodes(node)
+        .filter((n) => n.type === "group_container")
+        .map((n) => n.id);
+
+      console.log("🚀 ~ Flow ~ intersections:", {
+        intersections,
+        closeEdge,
+        closestNode,
+      });
 
       setEdges((es) => {
         const nextEdges = es.filter((e) => e.className !== "temp");
@@ -96,44 +135,83 @@ function Flow() {
     },
     [getClosestEdge, setEdges]
   );
+  function _onNodeDrag({ detail: { targetNode } }) {
+    const intersections = getIntersectingNodes(targetNode).map((n) => n.id);
+
+    if (intersections.length > 0) {
+      const interGroup = nodes.find(
+        (_) => _.type === "group" && intersections.includes(_.id)
+      );
+
+      // if (interGroup) {
+      //   updateNode(targetNode.id, {
+      //     parentId: interGroup.id,
+      //   });
+
+      //   updateNodeInternals(targetNode.id);
+      // }
+    }
+  }
+  const onNodeDragStop = useCallback(
+    (_, node) => {
+      const { closeEdge, closestNode } = getClosestEdge(node);
+
+      setEdges((es) => {
+        const nextEdges = es.filter((e) => e.className !== "temp");
+
+        if (
+          closeEdge &&
+          !nextEdges.find(
+            (ne) =>
+              ne.source === closeEdge.source && ne.target === closeEdge.target
+          )
+        ) {
+          // nextEdges.push(closeEdge);
+        }
+
+        return nextEdges;
+      });
+    },
+    [getClosestEdge]
+  );
 
   const onNodesChange = useCallback(
     (changes) => {
       setNodes((nds) => {
-        if (changes[0]?.id === "C3") {
-          setEdges([
-            {
-              id: "link1",
-              source: "C1",
-              target: "C3",
-            },
-            {
-              id: "link2",
-              source: "C3",
-              target: "C2",
-            },
-          ]);
-        }
+        // if (changes[0]?.id === "C3") {
+        //   setEdges([
+        //     {
+        //       id: "link1",
+        //       source: "C1",
+        //       target: "C3",
+        //     },
+        //     {
+        //       id: "link2",
+        //       source: "C3",
+        //       target: "C2",
+        //     },
+        //   ]);
+        // }
 
-        if (changes[0]?.id === "C3") {
-          const _C1 = nds.find((n) => n.id === "C1");
-          const _P1 = nds.find((n) => n.id === "P1");
-          const _C3 = nds.find((n) => n.id === "C3");
-          nds.map((d) => {
-            if (d.id === "P1") {
-              d.style.height = _P1.height + _C3.height;
-              d.style.width = _C3.width;
-            } else if (d.id === "C3") {
-              d.parentNode = "P1";
-              d.extent = "parent";
-              d.position.y = _C1.position.y + _C1.height + 2;
-              // d.position.x = _C1.position.x;
-            }
-            d.position.x = _P1.position.x;
+        // if (changes[0]?.id === "C3") {
+        //   const _C1 = nds.find((n) => n.id === "C1");
+        //   const _P1 = nds.find((n) => n.id === "P1");
+        //   const _C3 = nds.find((n) => n.id === "C3");
+        //   nds.map((d) => {
+        //     if (d.id === "P1") {
+        //       d.style.height = _P1.height + _C3.height;
+        //       d.style.width = _C3.width;
+        //     } else if (d.id === "C3") {
+        //       d.parentNode = "P1";
+        //       d.extent = "parent";
+        //       d.position.y = _C1.position.y + _C1.height + 2;
+        //       // d.position.x = _C1.position.x;
+        //     }
+        //     d.position.x = _P1.position.x;
 
-            return d;
-          });
-        }
+        //     return d;
+        //   });
+        // }
         return applyNodeChanges(changes, nds);
       });
     },
@@ -152,11 +230,67 @@ function Flow() {
     [setEdges]
   );
   const onConnect = useCallback(
-    (connection) => setEdges((eds) => addEdge(connection, eds)),
+    (connection) =>
+      setEdges((eds) =>
+        addEdge(connection, eds).map((e) => ({ ...e, type: "CustomDelEdge" }))
+      ),
     [setEdges]
   );
 
-  // console.log("render00000000", { nodes, edges });
+  const edgeTypes = {
+    CustomDelEdge,
+  };
+  function CustomDelEdge({
+    id,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    style = {},
+    markerEnd,
+  }) {
+    const [edgePath, labelX, labelY] = getBezierPath({
+      sourceX,
+      sourceY,
+      sourcePosition,
+      targetX,
+      targetY,
+      targetPosition,
+    });
+
+    const onEdgeClick = () => {
+      setEdges((edges) => {
+        console.log("🚀 ~ Flow ~ edgeTypes:", { edges, id });
+
+        return edges.filter((edge) => edge.id !== id);
+      });
+    };
+
+    return (
+      <>
+        <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+              fontSize: 12,
+              // everything inside EdgeLabelRenderer has no pointer events by default
+              // if you have an interactive element, set pointer-events: all
+              pointerEvents: "all",
+            }}
+            className="nodrag nopan"
+          >
+            <a className="edgebutton" onClick={onEdgeClick}>
+              ×
+            </a>
+          </div>
+        </EdgeLabelRenderer>
+      </>
+    );
+  }
 
   return (
     <ReactFlow
@@ -165,10 +299,13 @@ function Flow() {
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onNodeDrag={onNodeDrag}
+      onNodeDragStop={onNodeDragStop}
       onConnect={onConnect}
       fitView
       style={rfStyle}
       attributionPosition="top-right"
+      nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
     >
       <Background />
     </ReactFlow>

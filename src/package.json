@@ -1,7 +1,7 @@
 {
   "dependencies": {
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2",
     "react-scripts": "^5.0.0",
     "reactflow": "11.10.4",
     "@xyflow/react": "12.3.4"
