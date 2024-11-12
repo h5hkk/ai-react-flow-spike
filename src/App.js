@@ -16,7 +16,7 @@ import { nodeTypes } from "./NodeTypes.js";
 import { getEdgeId } from "./utils.js";
 
 import initialEdges from "./edges.js";
-import initialNodes from "./nodes.js";
+import initialNodes, { NodeHeight } from "./nodes.js";
 const GroupClassName = "grouping-hover";
 const GroupNodeName = "group_container";
 const rfStyle = {
@@ -24,14 +24,63 @@ const rfStyle = {
 };
 
 function Flow() {
-  // const [nodes, setNodes] = useState(initialNodes);
-  // const [edges, setEdges] = useState(initialEdges);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const { getIntersectingNodes, updateNode, getInternalNode } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
   const store = useStoreApi();
   const { nodeLookup } = store.getState();
+
+  const getInnerClosestNode = useCallback((node, parentId) => {
+    if (!parentId) {
+      return null;
+    }
+    const internalNode = getInternalNode(node.id);
+    const innerNodes = Array.from(nodeLookup.values())
+      .filter(
+        (n) =>
+          n.type !== GroupNodeName &&
+          n.parentId === parentId &&
+          n.id !== node.id
+      )
+      .map((n) => {
+        const internalNode = getInternalNode(n.id);
+        return internalNode;
+      })
+      .sort((a, b) => {
+        return a.internals.positionAbsolute.y - b.internals.positionAbsolute.y;
+      });
+
+    const index = innerNodes.findIndex((n) => {
+      return (
+        n.internals.positionAbsolute.y >=
+        internalNode.internals.positionAbsolute.y
+      );
+    });
+
+    const topNeighbor = innerNodes[index - 1] || null;
+    const bottomNeighbor = innerNodes[index] || null;
+
+    if (index === 0) {
+      return {
+        index,
+        topNeighbor: null,
+        bottomNeighbor: innerNodes[0] ?? null,
+      };
+    } else if (index > 0) {
+      return {
+        index,
+        topNeighbor,
+        bottomNeighbor,
+      };
+    } else {
+      return {
+        index,
+        topNeighbor: innerNodes.at(-1) ?? null,
+        bottomNeighbor: null,
+      };
+    }
+  }, []);
 
   const getInterGroup = useCallback((node) => {
     if (node.type === GroupNodeName) {
@@ -53,16 +102,28 @@ function Flow() {
   const onNodeDrag = useCallback(
     (_, node) => {
       const interGroup = getInterGroup(node);
+      const { index, topNeighbor, bottomNeighbor } =
+        getInnerClosestNode(node, interGroup?.id) ?? {};
+
       setNodes((ns) => {
         const nextNodes = ns.map((n) => {
+          let className = "";
+          if (interGroup?.id === n.id) {
+            className = GroupClassName;
+          } else if (topNeighbor?.id === n.id) {
+            className = "drop-over-downward";
+          } else if (bottomNeighbor?.id === n.id) {
+            className = "drop-over-upward";
+          }
           return {
             ...n,
             extent: n.id === node.id ? undefined : n.extent,
-            className: interGroup?.id === n.id ? GroupClassName : "",
+            className,
           };
         });
         return nextNodes;
       });
+
       setEdges((eds) => {
         const nextEdges = eds.map((e) => {
           return {
@@ -81,11 +142,16 @@ function Flow() {
       const interGroup = getInterGroup(node);
       if (interGroup) {
         /** move in */
+        const { index, topNeighbor, bottomNeighbor } =
+          getInnerClosestNode(node, interGroup?.id) ?? {};
+
         setNodes((ns) => {
           const nextNodes = ns.map((n) => {
             if (node.type !== GroupNodeName && n.id === node.id) {
               n.position.x = 0;
-              n.position.y = 30;
+              // n.position.y = 30;
+              n.position.y =
+                (topNeighbor?.internals?.positionAbsolute.y ?? 0) + NodeHeight;
               n.parentId = interGroup.id;
               n.extent = "parent";
             } else if (n.id === interGroup.id) {
@@ -109,13 +175,78 @@ function Flow() {
           });
         });
         setEdges((eds) => {
-          const nextEdges = eds.map((e) => {
+          let nextEdges = eds.map((e) => {
             return {
               ...e,
               animated: false,
             };
           });
-          return nextEdges;
+          if (topNeighbor && !bottomNeighbor) {
+            //插在最后一个
+            nextEdges = nextEdges.filter(
+              (edge) => edge.source !== topNeighbor.id
+            );
+            return addNewEdge(nextEdges, [
+              {
+                source: topNeighbor.id,
+                target: node.id,
+                id: getEdgeId(topNeighbor.id, node.id),
+              },
+              {
+                source: node.id,
+                target: interGroup.id,
+                id: getEdgeId(node.id, interGroup.id),
+              },
+            ]);
+          } else if (!topNeighbor && bottomNeighbor) {
+            //插在第一个
+            nextEdges = nextEdges.filter(
+              (edge) => edge.target !== bottomNeighbor.id
+            );
+            return addNewEdge(nextEdges, [
+              {
+                source: node.id,
+                target: bottomNeighbor.id,
+                id: getEdgeId(node.id, bottomNeighbor.id),
+              },
+              {
+                source: interGroup.id,
+                target: node.id,
+                id: getEdgeId(interGroup.id, node.id),
+              },
+            ]);
+          } else if (topNeighbor && bottomNeighbor) {
+            //插在中间
+            nextEdges = nextEdges.filter(
+              (edge) => edge.source !== topNeighbor.id
+            );
+            return addNewEdge(nextEdges, [
+              {
+                source: topNeighbor.id,
+                target: node.id,
+                id: getEdgeId(topNeighbor.id, node.id),
+              },
+              {
+                source: node.id,
+                target: topNeighbor.id,
+                id: getEdgeId(node.id, topNeighbor.id),
+              },
+            ]);
+          } else if (!topNeighbor && !bottomNeighbor) {
+            //parent没有children
+            return addNewEdge(nextEdges, [
+              {
+                source: interGroup.id,
+                target: node.id,
+                id: getEdgeId(interGroup.id, node.id),
+              },
+              {
+                source: node.id,
+                target: interGroup.id,
+                id: getEdgeId(node.id, interGroup.id),
+              },
+            ]);
+          }
         });
       } else {
         /** move out */
@@ -125,7 +256,7 @@ function Flow() {
           );
           const source = preEdges.find((p) => p.target === node.id)?.source;
           const target = preEdges.find((p) => p.source === node.id)?.target;
-          if (source && target) {
+          if (source && target && source !== target) {
             newEdges.push({
               source,
               target,
@@ -139,16 +270,20 @@ function Flow() {
     [getInterGroup]
   );
 
+  const addNewEdge = useCallback((preEdges, newEdges) => {
+    newEdges.forEach((newEdge) => {
+      if (!preEdges.find((p) => p.id === newEdge.id)) {
+        preEdges.push(newEdge);
+      }
+    });
+    return preEdges;
+  }, []);
+
   const onConnect = useCallback(
     (connection) => setEdges((eds) => addEdge(connection, eds)),
     [setEdges]
   );
-  console.log("🚀 ~ Flow ~ edges:", edges);
-  console.log("nodes ~ Flow ~ nodes:", {
-    nodes,
-    from: Array.from(nodeLookup.values()),
-    inter: Array.from(nodeLookup.values()).map((n) => getInternalNode(n.id)),
-  });
+  // console.log("🚀 ~ Flow ~ render :", { nodes, edges });
 
   return (
     <ReactFlow

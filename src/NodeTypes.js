@@ -1,6 +1,5 @@
 import { Handle } from "@xyflow/react";
-const height = "200px";
-const offsetHeight = "220px";
+const height = 300;
 export let positionAbsolute = { x: 0, y: 0 };
 export let parentId = undefined;
 export const nodeTypes = {
@@ -14,9 +13,7 @@ export const nodeTypes = {
           backgroundColor: "#fff",
           padding: "10px",
           borderRadius: "5px",
-          // border: "1px solid #ccc",
-          // width: "100%",
-          height,
+          height: 300,
           opacity: 0.5,
         }}
       >
@@ -26,7 +23,7 @@ export const nodeTypes = {
           type="target"
           id={id + "target"}
           style={{
-            transform: `translateY(${offsetHeight})`,
+            transform: `translateY(${height + 20}px)`,
           }}
         />
       </div>

@@ -34,3 +34,14 @@ body,
   border: 2px dashed #1890ff;
   padding: 8px !important;
 }
+
+
+.drop-over-downward {
+  border-bottom: 2px solid #00a870 !important;
+  ;
+}
+
+.drop-over-upward {
+  border-top: 2px solid #00a870 !important;
+  ;
+}

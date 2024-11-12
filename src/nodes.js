@@ -1,3 +1,4 @@
+export const NodeHeight = 54;
 const _nodes = [
   {
     id: "G1",
@@ -30,7 +31,7 @@ const _nodes = [
   {
     id: "G2",
     type: "group_container",
-    position: { x: -200, y: 230 },
+    position: { x: -300, y: 230 },
     data: null,
     style: {
       width: 170,
@@ -71,7 +72,7 @@ const _nodes = [
   {
     id: "G3",
     type: "group_container",
-    position: { x: 100, y: 230 },
+    position: { x: 300, y: 230 },
     style: {
       width: 170,
     },
