@@ -7,16 +7,15 @@ import {
   useNodesState,
   useReactFlow,
   useStoreApi,
-  useUpdateNodeInternals,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import "reactflow/dist/style.css";
 import { nodeTypes } from "./NodeTypes.js";
 import { getEdgeId } from "./utils.js";
 
 import initialEdges from "./edges.js";
-import initialNodes from "./nodes.js";
+import initialNodes, { NodeHeight } from "./nodes.js";
 const GroupClassName = "grouping-hover";
 const GroupNodeName = "group_container";
 const rfStyle = {
@@ -26,9 +25,23 @@ const rfStyle = {
 function Flow() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-  const { getIntersectingNodes, updateNode, getInternalNode } = useReactFlow();
-  const updateNodeInternals = useUpdateNodeInternals();
+  const { getIntersectingNodes, getInternalNode } = useReactFlow();
   const store = useStoreApi();
+  const groupNodes = nodes.filter((n) => n.type === GroupNodeName);
+  useEffect(() => {
+    setNodes((nds) => {
+      return nds.sort((a, b) => {
+        /**
+         * GroupNode必须排在前面，不然react-flow有报错
+         */
+        if (a.type === GroupNodeName && b.type !== GroupNodeName) {
+          return -1;
+        } else {
+          return 1;
+        }
+      });
+    });
+  }, [groupNodes.map((n) => n.id).join("")]);
 
   const getInnerClosestNode = useCallback((node, parentId) => {
     if (!parentId) {
@@ -43,7 +56,7 @@ function Flow() {
     const innerNodes = Array.from(nodeLookup.values())
       .filter(
         (n) =>
-          n.parentId && //TODO:不生效？？？
+          n.parentId && //TODO:不生效？？？ 【node.type === GroupNodeName】
           n.type !== GroupNodeName &&
           n.parentId === parentId &&
           n.id !== node.id
@@ -65,24 +78,29 @@ function Flow() {
 
     const topNeighbor = innerNodes[index - 1] || null;
     const bottomNeighbor = innerNodes[index] || null;
-
     if (index === 0) {
       return {
         index,
-        topNeighbor: null,
-        bottomNeighbor: innerNodes[0] ?? null,
+        topNeighbor,
+        bottomNeighbor,
+        previousNodes: [],
+        flowingNodes: innerNodes,
       };
     } else if (index > 0) {
       return {
         index,
         topNeighbor,
         bottomNeighbor,
+        previousNodes: innerNodes.slice(0, index),
+        flowingNodes: innerNodes.slice(index),
       };
     } else {
       return {
         index,
         topNeighbor: innerNodes.at(-1) ?? null,
         bottomNeighbor: null,
+        previousNodes: innerNodes,
+        flowingNodes: [],
       };
     }
   }, []);
@@ -173,41 +191,60 @@ function Flow() {
       if (node.type === GroupNodeName) {
         return;
       }
+
       const interGroup = getInterGroup(node);
       if (interGroup) {
         /** move in */
-        const { index, topNeighbor, bottomNeighbor } =
-          getInnerClosestNode(node, interGroup?.id) ?? {};
+        const {
+          index,
+          topNeighbor,
+          bottomNeighbor,
+          previousNodes = [],
+          flowingNodes = [],
+        } = getInnerClosestNode(node, interGroup?.id) ?? {};
+        console.log("🚀 ~ getInnerClosestNode ~nextNodes+previousNodes:", {
+          index,
+          previousNodes,
+          flowingNodes,
+        });
 
         setNodes((ns) => {
-          const nextNodes = ns.map((n, index) => {
-            //interGroup内的y排序
-            // n.position.y = 50 + (index + 1) * NodeHeight;
+          const nextNodes = ns.map((n) => {
             if (node.type !== GroupNodeName && n.id === node.id) {
-              n.position.x = 0;
-              // n.position.y = 30;
-              //   (topNeighbor?.internals?.positionAbsolute.y ?? 0) + NodeHeight;
+              /**
+               * @deprecated n.position.x = 0;
+               * nodeWidth = groupWidth 所以 extent之后不用设置x
+               */
               n.parentId = interGroup.id;
               n.extent = "parent";
-            } else if (n.id === interGroup.id) {
-              // n.style.height =
-              //   interGroup.measured.height + node.measured.height;
+              const y =
+                50 +
+                (NodeHeight + 20) *
+                  (index > -1
+                    ? index
+                    : previousNodes.length + flowingNodes.length);
+              n.position.y = y;
+            }
+            if (flowingNodes.some((fNode) => fNode.id === n.id)) {
+              const index =
+                previousNodes.length +
+                flowingNodes.findIndex((fNode) => fNode.id === n.id) +
+                2;
+              const y = 50 + (NodeHeight + 20) * index;
+              n.position.y = y;
+            } else if (previousNodes.some((fNode) => fNode.id === n.id)) {
+              const index = previousNodes.findIndex(
+                (fNode) => fNode.id === n.id
+              );
+              const y = 50 + (NodeHeight + 20) * index;
+              n.position.y = y;
             }
             return {
               ...n,
               className: "",
             };
           });
-          return nextNodes.sort((a, b) => {
-            /**
-             * GroupNode必须排在前面，不然react-flow有报错
-             */
-            if (a.type === GroupNodeName && b.type !== GroupNodeName) {
-              return -1;
-            } else {
-              return 1;
-            }
-          });
+          return nextNodes;
         });
         setEdges((eds) => {
           let nextEdges = eds.map((e) => {
@@ -310,7 +347,6 @@ function Flow() {
     (connection) => setEdges((eds) => addEdge(connection, eds)),
     [setEdges]
   );
-  // console.log("🚀 ~ Flow ~ render :", { nodes, edges });
 
   return (
     <ReactFlow
@@ -324,8 +360,7 @@ function Flow() {
       fitView
       style={rfStyle}
       attributionPosition="top-right"
-      nodeTypes={nodeTypes}
-      // edgeTypes={edgeTypes}
+      nodeTypes={useMemo(() => nodeTypes, [])}
     >
       <Background />
     </ReactFlow>

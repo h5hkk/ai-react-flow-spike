@@ -1,32 +1,5 @@
-import { Handle } from "@xyflow/react";
-const height = 300;
-export let positionAbsolute = { x: 0, y: 0 };
-export let parentId = undefined;
+import GroupContainer from "./GroupContainer";
+
 export const nodeTypes = {
-  group_container: (props) => {
-    const { id } = props;
-    return (
-      <div
-        className="node_group_container"
-        style={{
-          zIndex: -1,
-          backgroundColor: "#fff",
-          padding: "10px",
-          borderRadius: "5px",
-          height: 300,
-          opacity: 0.5,
-        }}
-      >
-        <Handle type="source" id={id + "source"} />
-        {id}
-        <Handle
-          type="target"
-          id={id + "target"}
-          style={{
-            transform: `translateY(${height + 20}px)`,
-          }}
-        />
-      </div>
-    );
-  },
+  group_container: (props) => <GroupContainer {...props} />,
 };

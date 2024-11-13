@@ -1,13 +1,16 @@
 export const NodeHeight = 54;
-const _nodes = [
-  {
-    id: "G1",
+const group = Array(3)
+  .fill("")
+  .map((_, index) => ({
+    id: `G${index + 1}`,
     type: "group_container",
-    position: { x: 0, y: 0 },
+    position: { x: (index - 1) * 300, y: -(index % 2) * 300 },
     style: {
       width: 170,
     },
-  },
+  }));
+const _nodes = [
+  ...group,
   {
     id: "G1-1",
     data: { label: "Child Node 1" },
@@ -24,15 +27,6 @@ const _nodes = [
     position: { x: 10, y: 220 },
     parentId: "G1",
     extent: "parent",
-    style: {
-      width: 170,
-    },
-  },
-  {
-    id: "G2",
-    type: "group_container",
-    position: { x: -300, y: 230 },
-    data: null,
     style: {
       width: 170,
     },
@@ -69,15 +63,7 @@ const _nodes = [
       width: 170,
     },
   },
-  {
-    id: "G3",
-    type: "group_container",
-    position: { x: 300, y: 230 },
-    style: {
-      width: 170,
-    },
-    data: { label: "Node C" },
-  },
+
   {
     id: "test",
     position: { x: 200, y: 130 },
