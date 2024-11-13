@@ -16,7 +16,7 @@ import { nodeTypes } from "./NodeTypes.js";
 import { getEdgeId } from "./utils.js";
 
 import initialEdges from "./edges.js";
-import initialNodes, { NodeHeight } from "./nodes.js";
+import initialNodes from "./nodes.js";
 const GroupClassName = "grouping-hover";
 const GroupNodeName = "group_container";
 const rfStyle = {
@@ -29,16 +29,21 @@ function Flow() {
   const { getIntersectingNodes, updateNode, getInternalNode } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
   const store = useStoreApi();
-  const { nodeLookup } = store.getState();
 
   const getInnerClosestNode = useCallback((node, parentId) => {
     if (!parentId) {
       return null;
     }
+    /**
+     * 不放外面定义，因为拿不到最新的node数据
+     */
+    const { nodeLookup } = store.getState();
+
     const internalNode = getInternalNode(node.id);
     const innerNodes = Array.from(nodeLookup.values())
       .filter(
         (n) =>
+          n.parentId && //TODO:不生效？？？
           n.type !== GroupNodeName &&
           n.parentId === parentId &&
           n.id !== node.id
@@ -83,6 +88,7 @@ function Flow() {
   }, []);
 
   const getInterGroup = useCallback((node) => {
+    const { nodeLookup } = store.getState();
     if (node.type === GroupNodeName) {
       return null;
     }
@@ -101,6 +107,9 @@ function Flow() {
 
   const onNodeDrag = useCallback(
     (_, node) => {
+      if (node.type === GroupNodeName) {
+        return;
+      }
       const interGroup = getInterGroup(node);
       const { index, topNeighbor, bottomNeighbor } =
         getInnerClosestNode(node, interGroup?.id) ?? {};
@@ -117,6 +126,7 @@ function Flow() {
           }
           return {
             ...n,
+            parentId: n.id === node.id ? undefined : n.parentId,
             extent: n.id === node.id ? undefined : n.extent,
             className,
           };
@@ -137,8 +147,32 @@ function Flow() {
     [getInterGroup, setEdges]
   );
 
+  const deleteCurrentNodeEdge = (preEdges, node) => {
+    const nextEdges = preEdges
+      .filter((edge) => edge.source !== node.id && edge.target !== node.id)
+      .map((e) => {
+        return {
+          ...e,
+          animated: false,
+        };
+      });
+    const source = preEdges.find((p) => p.target === node.id)?.source;
+    const target = preEdges.find((p) => p.source === node.id)?.target;
+    if (source && target && source !== target) {
+      nextEdges.push({
+        source,
+        target,
+        id: getEdgeId(source, target),
+      });
+    }
+    return nextEdges;
+  };
+
   const onNodeDragStop = useCallback(
     (_, node) => {
+      if (node.type === GroupNodeName) {
+        return;
+      }
       const interGroup = getInterGroup(node);
       if (interGroup) {
         /** move in */
@@ -146,12 +180,13 @@ function Flow() {
           getInnerClosestNode(node, interGroup?.id) ?? {};
 
         setNodes((ns) => {
-          const nextNodes = ns.map((n) => {
+          const nextNodes = ns.map((n, index) => {
+            //interGroup内的y排序
+            // n.position.y = 50 + (index + 1) * NodeHeight;
             if (node.type !== GroupNodeName && n.id === node.id) {
               n.position.x = 0;
               // n.position.y = 30;
-              n.position.y =
-                (topNeighbor?.internals?.positionAbsolute.y ?? 0) + NodeHeight;
+              //   (topNeighbor?.internals?.positionAbsolute.y ?? 0) + NodeHeight;
               n.parentId = interGroup.id;
               n.extent = "parent";
             } else if (n.id === interGroup.id) {
@@ -181,6 +216,8 @@ function Flow() {
               animated: false,
             };
           });
+
+          nextEdges = deleteCurrentNodeEdge(nextEdges, node);
           if (topNeighbor && !bottomNeighbor) {
             //插在最后一个
             nextEdges = nextEdges.filter(
@@ -218,7 +255,9 @@ function Flow() {
           } else if (topNeighbor && bottomNeighbor) {
             //插在中间
             nextEdges = nextEdges.filter(
-              (edge) => edge.source !== topNeighbor.id
+              (edge) =>
+                edge.source !== topNeighbor.id ||
+                edge.target !== bottomNeighbor.id
             );
             return addNewEdge(nextEdges, [
               {
@@ -228,8 +267,8 @@ function Flow() {
               },
               {
                 source: node.id,
-                target: topNeighbor.id,
-                id: getEdgeId(node.id, topNeighbor.id),
+                target: bottomNeighbor.id,
+                id: getEdgeId(node.id, bottomNeighbor.id),
               },
             ]);
           } else if (!topNeighbor && !bottomNeighbor) {
@@ -251,19 +290,7 @@ function Flow() {
       } else {
         /** move out */
         setEdges((preEdges) => {
-          const newEdges = preEdges.filter(
-            (edge) => edge.source !== node.id && edge.target !== node.id
-          );
-          const source = preEdges.find((p) => p.target === node.id)?.source;
-          const target = preEdges.find((p) => p.source === node.id)?.target;
-          if (source && target && source !== target) {
-            newEdges.push({
-              source,
-              target,
-              id: getEdgeId(source, target),
-            });
-          }
-          return newEdges;
+          return deleteCurrentNodeEdge(preEdges, node);
         });
       }
     },

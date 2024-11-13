@@ -21,7 +21,7 @@ const _nodes = [
   {
     id: "G1-2",
     data: { label: "Child Node 2" },
-    position: { x: 10, y: 140 },
+    position: { x: 10, y: 220 },
     parentId: "G1",
     extent: "parent",
     style: {
